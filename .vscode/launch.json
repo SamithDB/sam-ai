@@ -7,9 +7,6 @@
       "name": "Debug @sam-ai/api with Nx",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["nx", "serve", "@sam-ai/api"],
-      "env": {
-        "NODE_OPTIONS": "--inspect=9229"
-      },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
       "skipFiles": ["<node_internals>/**"],

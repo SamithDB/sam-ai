@@ -71,7 +71,9 @@
         ],
         "options": {
           "buildTarget": "@sam-ai/api:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "watch": false,
+          "inspect": false
         },
         "configurations": {
           "development": {

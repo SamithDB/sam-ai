@@ -1,26 +1,24 @@
 import { render } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 
 import App from './app';
 
 describe('App', () => {
   it('should render successfully', () => {
     const { baseElement } = render(
-      <BrowserRouter>
+      <MemoryRouter initialEntries={['/']}>
         <App />
-      </BrowserRouter>,
+      </MemoryRouter>,
     );
     expect(baseElement).toBeTruthy();
   });
 
-  it('should have a greeting as the title', () => {
-    const { getAllByText } = render(
-      <BrowserRouter>
+  it('should have the api explorer button on the main page', () => {
+    const { getByText } = render(
+      <MemoryRouter initialEntries={['/']}>
         <App />
-      </BrowserRouter>,
+      </MemoryRouter>,
     );
-    expect(
-      getAllByText(new RegExp('Welcome @sam-ai/ui', 'gi')).length > 0,
-    ).toBeTruthy();
+    expect(getByText(/open api explorer/i)).toBeTruthy();
   });
 });
