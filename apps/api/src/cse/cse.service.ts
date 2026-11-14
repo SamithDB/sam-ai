@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env';
 import {
   CseAnalysisReport,
   CseAnnouncement,
@@ -8,16 +10,16 @@ import {
   CseMarketIndex,
   CseMarketSummary,
   CseSecurityMaster,
-  CseSourceMode,
 } from './cse.types';
-
-type LiveMode = 'enabled' | 'disabled';
 
 @Injectable()
 export class CseService {
   private readonly logger = new Logger(CseService.name);
-  private readonly apiBaseUrl = process.env.CSE_API_BASE_URL?.trim();
-  private readonly liveMode: LiveMode = this.apiBaseUrl ? 'enabled' : 'disabled';
+  private readonly apiBaseUrl: string | undefined;
+
+  constructor(config: ConfigService<Env, true>) {
+    this.apiBaseUrl = config.get('CSE_API_BASE_URL', { infer: true });
+  }
 
   private readonly securityMaster: CseSecurityMaster[] = [
     {
@@ -187,17 +189,21 @@ export class CseService {
     return this.securityMaster.find((entry) => entry.symbol === normalized);
   }
 
-  getCompanySnapshot(symbol: string): CseCompanySnapshot {
+  async getCompanySnapshot(symbol: string): Promise<CseCompanySnapshot> {
     const normalized = this.normalizeSymbol(symbol);
     if (this.apiBaseUrl) {
-      return this.fetchLiveSnapshot(normalized) ?? this.getFixtureSnapshot(normalized);
+      return (await this.fetchLiveSnapshot(normalized)) ?? this.getFixtureSnapshot(normalized);
     }
 
     return this.getFixtureSnapshot(normalized);
   }
 
-  getHistoricalBars(symbol: string, days = 30): CseHistoricalBar[] {
-    const snapshot = this.getCompanySnapshot(symbol);
+  async getHistoricalBars(symbol: string, days = 30): Promise<CseHistoricalBar[]> {
+    return this.buildHistoricalBars(await this.getCompanySnapshot(symbol), days);
+  }
+
+  // Synthetic bars derived from the latest snapshot until a real history source is ingested.
+  private buildHistoricalBars(snapshot: CseCompanySnapshot, days: number): CseHistoricalBar[] {
     const history: CseHistoricalBar[] = [];
     const baseClose = snapshot.lastTradedPrice;
     const trendBias = this.getTrendBias(snapshot.symbol);
@@ -228,17 +234,17 @@ export class CseService {
     return history;
   }
 
-  getMarketSummary(): CseMarketSummary {
+  async getMarketSummary(): Promise<CseMarketSummary> {
     if (this.apiBaseUrl) {
-      return this.fetchLiveMarketSummary() ?? this.marketSummaryFixture;
+      return (await this.fetchLiveMarketSummary()) ?? { ...this.marketSummaryFixture };
     }
 
     return { ...this.marketSummaryFixture };
   }
 
-  getMarketIndexes(): CseMarketIndex[] {
+  async getMarketIndexes(): Promise<CseMarketIndex[]> {
     if (this.apiBaseUrl) {
-      return this.fetchLiveMarketIndexes() ?? [...this.marketIndexesFixture];
+      return (await this.fetchLiveMarketIndexes()) ?? [...this.marketIndexesFixture];
     }
 
     return [...this.marketIndexesFixture];
@@ -253,12 +259,11 @@ export class CseService {
     return [...announcements];
   }
 
-  getAnalysis(symbol: string): CseAnalysisReport {
+  async getAnalysis(symbol: string): Promise<CseAnalysisReport> {
     const normalized = this.normalizeSymbol(symbol);
-    const snapshot = this.getCompanySnapshot(normalized);
-    const history = this.getHistoricalBars(normalized, 30);
-    const marketSummary = this.getMarketSummary();
-    const marketIndexes = this.getMarketIndexes();
+    const snapshot = await this.getCompanySnapshot(normalized);
+    const history = this.buildHistoricalBars(snapshot, 30);
+    const [marketSummary, marketIndexes] = await Promise.all([this.getMarketSummary(), this.getMarketIndexes()]);
     const announcements = this.getAnnouncements(normalized);
     const latestHistory = history.at(-1);
     const twentyDayAverage = this.getAverageClose(history.slice(-20));
@@ -338,7 +343,7 @@ export class CseService {
   private normalizeSymbol(value: string): string {
     const trimmed = value.trim().toUpperCase();
     if (!trimmed) {
-      throw new Error('Symbol is required');
+      throw new BadRequestException('Symbol is required');
     }
 
     return trimmed.includes('.') ? trimmed : `${trimmed}.N0000`;
@@ -349,7 +354,7 @@ export class CseService {
     if (!snapshot) {
       const master = this.getSymbolLookup(symbol);
       if (!master) {
-        throw new Error(`Unknown CSE symbol: ${symbol}`);
+        throw new NotFoundException(`Unknown CSE symbol: ${symbol}`);
       }
 
       return this.buildFallbackSnapshot(master);
@@ -454,8 +459,10 @@ export class CseService {
   }
 
   private async fetchLiveMarketIndexes(): Promise<CseMarketIndex[] | null> {
-    const aspiPayload = await this.postForm('/aspiData', {});
-    const snpPayload = await this.postForm('/snpData', {});
+    const [aspiPayload, snpPayload] = await Promise.all([
+      this.postForm('/aspiData', {}),
+      this.postForm('/snpData', {}),
+    ]);
 
     if (!aspiPayload && !snpPayload) {
       return null;

@@ -8,6 +8,12 @@
     },
     {
       "path": "./apps/ui"
+    },
+    {
+      "path": "./packages/agents"
+    },
+    {
+      "path": "./packages/tools"
     }
   ]
 }

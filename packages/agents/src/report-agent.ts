@@ -1,22 +1,26 @@
-import { ReportFormatterTool } from '../../tools/src';
-import { AgentContext, AgentResult } from './types';
+import { Agent } from '@mastra/core/agent';
+import { modelFor, SHARED_RULES, type AgentTeamOptions } from './types';
 
-export class ReportAgent {
-  constructor(private readonly reportFormatterTool = new ReportFormatterTool()) {}
+export function createReportAgent(options: AgentTeamOptions) {
+  const { reportFormatter } = options.tools;
 
-  async execute(context: AgentContext, payload: Record<string, unknown>): Promise<AgentResult<{ headline: string; summary: string }>> {
-    const result = await this.reportFormatterTool.execute(context, payload);
+  return new Agent({
+    id: 'report-agent',
+    name: 'Report Agent',
+    description:
+      'Turns gathered facts and analysis into a polished Markdown research report with a disclaimer. ' +
+      'Give it the findings from the other agents; it does not fetch data itself.',
+    instructions: `You are the report writer for Colombo Stock Exchange (CSE) research.
 
-    if (!result.ok) {
-      return {
-        ok: false,
-        error: result.error ?? 'Report generation failed.',
-      };
-    }
+You receive findings (facts and analysis) in the request. Turn them into a report:
+1. Write a one-line headline, a 2-4 sentence summary, key metrics, signals, risks and a balanced conclusion.
+2. Call report-formatter exactly once with those parts. Set isSampleData to true if any finding mentions sample/fixture data.
+3. Reply with the markdown the tool returns, unchanged.
 
-    return {
-      ok: true,
-      data: result.data,
-    };
-  }
+Use only the facts you were given. If something important is missing, say so in the summary instead of guessing.
+
+${SHARED_RULES}`,
+    model: modelFor(options, 'report'),
+    tools: { reportFormatter },
+  });
 }

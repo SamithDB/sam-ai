@@ -8,6 +8,9 @@
     "start": "node tools/run-without-node-options.mjs nx run-many -t serve -p ui api --output-style=dynamic-legacy"
   },
   "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.8.0",
     "@nestjs/schematics": "^11.0.0",
@@ -64,20 +67,25 @@
     "apps/*"
   ],
   "dependencies": {
+    "@ai-sdk/react": "^3.0.334",
     "@mastra/ai-sdk": "^1.8.0",
     "@mastra/core": "^1.59.0",
     "@mastra/libsql": "^1.20.0",
     "@mastra/memory": "^1.26.2",
-    "mongoose": "^7.6.0",
     "@nestjs/common": "^11.0.0",
+    "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "ai": "^6.0.331",
     "axios": "^1.6.0",
     "mastra": "^1.25.0",
+    "mongoose": "^7.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "6.30.3",
     "reflect-metadata": "^0.2.0",
+    "remark-gfm": "^4.0.1",
     "rxjs": "^7.8.0",
     "zod": "^4.4.3"
   }

@@ -4,8 +4,10 @@
  */
 
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
+import type { Env } from './config/env';
 
 async function listenWithFallback(app: Awaited<ReturnType<typeof NestFactory.create>>, startPort: number) {
   const maxAttempts = 10;
@@ -35,8 +37,13 @@ async function bootstrap() {
   app.enableCors();
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix);
-  const port = Number(process.env.PORT || 3333);
-  const boundPort = await listenWithFallback(app, port);
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const port = config.get('API_PORT', { infer: true });
+  // Opt-in: when the port is busy, try the next ones. Off by default so the UI's
+  // UI_API_BASE_URL never silently points at the wrong port.
+  const boundPort = config.get('API_PORT_FALLBACK', { infer: true })
+    ? await listenWithFallback(app, port)
+    : (await app.listen(port), port);
   Logger.log(
     `🚀 Application is running on: http://localhost:${boundPort}/${globalPrefix}`,
   );

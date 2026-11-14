@@ -6,7 +6,9 @@
     "targets": {
       "build": {
         "executor": "@nx/webpack:webpack",
-        "outputs": ["{options.outputPath}"],
+        "outputs": [
+          "{options.outputPath}"
+        ],
         "options": {
           "target": "node",
           "compiler": "tsc",
@@ -35,8 +37,8 @@
         "cache": true,
         "executor": "@nx/js:prune-lockfile",
         "outputs": [
-          "{workspaceRoot}/api/dist/package.json",
-          "{workspaceRoot}/api/dist/package-lock.json"
+          "{workspaceRoot}/apps/api/dist/package.json",
+          "{workspaceRoot}/apps/api/dist/package-lock.json"
         ],
         "options": {
           "buildTarget": "build"
@@ -48,7 +50,7 @@
         ],
         "cache": true,
         "outputs": [
-          "{workspaceRoot}/api/dist/workspace_modules"
+          "{workspaceRoot}/apps/api/dist/workspace_modules"
         ],
         "executor": "@nx/js:copy-workspace-modules",
         "options": {
@@ -90,6 +92,8 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@sam-ai/agents": "*",
+    "@sam-ai/tools": "*",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0"

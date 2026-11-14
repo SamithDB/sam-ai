@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './api-explorer.page.module.scss';
+import { defaultApiBaseUrl } from './api-config';
 
 type HttpMethod = 'GET' | 'POST';
 
@@ -20,8 +21,6 @@ type EndpointState = {
 };
 
 const demoSymbol = 'JKH.N0000';
-const defaultApiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3333/api';
 
 const apiEndpoints: ApiEndpoint[] = [
   {

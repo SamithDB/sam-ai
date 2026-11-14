@@ -1,19 +1,30 @@
-import { ToolContext, ToolResult } from './types';
+import { createTool } from '@mastra/core/tools';
+import { z } from 'zod';
+import { securitySchema } from './schemas';
+import type { CseToolDeps } from './types';
 
-export class SymbolRegistryTool {
-  async execute(context: ToolContext): Promise<ToolResult<{ symbol: string; companyName: string; sector: string }[]>> {
-    const registry = [
-      { symbol: 'JKH.N0000', companyName: 'John Keells Holdings PLC', sector: 'Diversified Holdings' },
-      { symbol: 'HNB.N0000', companyName: 'Hatton National Bank PLC', sector: 'Banking and Finance' },
-      { symbol: 'COMB.N0000', companyName: 'Commercial Bank of Ceylon PLC', sector: 'Banking and Finance' },
-    ];
-
-    const normalized = context.symbol.trim().toUpperCase();
-    const matches = registry.filter((item) => item.symbol.includes(normalized) || normalized.includes(item.symbol.split('.')[0]));
-
-    return {
-      ok: true,
-      data: matches.length > 0 ? matches : registry,
-    };
-  }
+export function createSymbolRegistryTool({ data }: CseToolDeps) {
+  return createTool({
+    id: 'symbol-registry',
+    description:
+      'Look up Colombo Stock Exchange (CSE) listed securities. Search by ticker, company name or sector. ' +
+      'Use this to resolve a company name to its CSE symbol before calling other tools. Omit the query to list all.',
+    inputSchema: z.object({
+      query: z.string().trim().optional().describe('Ticker, company name or sector, e.g. "JKH", "Hatton", "Banking".'),
+    }),
+    outputSchema: z.object({
+      matches: z.array(securitySchema),
+      total: z.number(),
+    }),
+    execute: async ({ query }) => {
+      const all = await data.listSymbols();
+      const needle = query?.toLowerCase();
+      const matches = needle
+        ? all.filter((s) =>
+            [s.symbol, s.companyId, s.companyName, s.sectorName].some((field) => field.toLowerCase().includes(needle)),
+          )
+        : all;
+      return { matches, total: matches.length };
+    },
+  });
 }

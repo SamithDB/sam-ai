@@ -46,3 +46,8 @@ Thumbs.db
 
 vite.config.*.timestamp*
 test-output
+
+# Environment files (keep .env.example committed)
+.env
+.env.*
+!.env.example

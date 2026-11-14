@@ -172,3 +172,28 @@
 		align-items: flex-start;
 	}
 }
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	align-items: center;
+
+	.explorerButton,
+	.secondaryButton {
+		margin-top: 18px;
+	}
+}
+
+.secondaryButton {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 14px 18px;
+	border-radius: 16px;
+	border: 1px solid rgba(37, 99, 235, 0.35);
+	background: rgba(255, 255, 255, 0.85);
+	color: #1d4ed8;
+	font-weight: 700;
+	text-decoration: none;
+}

@@ -1,32 +1,28 @@
-import { TechnicalAnalysisTool, MarketContextTool, SectorComparisonTool } from '../../tools/src';
-import { AgentContext, AgentResult } from './types';
+import { Agent } from '@mastra/core/agent';
+import { modelFor, SHARED_RULES, type AgentTeamOptions } from './types';
 
-export class CseAnalyzeAgent {
-  constructor(
-    private readonly technicalAnalysisTool = new TechnicalAnalysisTool(),
-    private readonly marketContextTool = new MarketContextTool(),
-    private readonly sectorComparisonTool = new SectorComparisonTool(),
-  ) {}
+export function createCseAnalyzeAgent(options: AgentTeamOptions) {
+  const { technicalAnalysis, marketContext, sectorComparison, cseSnapshot } = options.tools;
 
-  async execute(context: AgentContext): Promise<AgentResult<{ signal: string; marketStatus: string; sectorSummary: string }>> {
-    const technical = await this.technicalAnalysisTool.execute(context);
-    const market = await this.marketContextTool.execute(context);
-    const sector = await this.sectorComparisonTool.execute(context);
+  return new Agent({
+    id: 'cse-analyze-agent',
+    name: 'CSE Analyze Agent',
+    description:
+      'Interprets CSE data: technical indicators (moving averages, RSI, momentum, trend), overall market context ' +
+      '(ASPI, S&P SL20, breadth) and sector peer comparison. Use it for "how is X doing / analyse X" questions.',
+    instructions: `You are the market analysis specialist for Colombo Stock Exchange (CSE) research.
 
-    if (!technical.ok || !market.ok || !sector.ok) {
-      return {
-        ok: false,
-        error: 'CSE analysis could not complete.',
-      };
-    }
+For a stock analysis:
+1. Call technical-analysis for the symbol to get trend, moving averages, RSI and momentum.
+2. Call market-context to see whether the move is stock-specific or market-wide.
+3. Call sector-comparison to compare the stock with its sector peers.
+4. Use cse-snapshot only if you need extra figures such as the 52-week range or market cap.
 
-    return {
-      ok: true,
-      data: {
-        signal: technical.data?.signal ?? 'Signal unavailable',
-        marketStatus: market.data?.marketStatus ?? 'Unknown',
-        sectorSummary: sector.data?.relativeStrength ?? 'Unknown',
-      },
-    };
-  }
+Return a structured analysis with these sections: Trend & momentum, Market context, Sector view, Signals, Risks.
+Explain what each indicator means in one short phrase so a non-expert can follow. Be balanced: always list risks.
+
+${SHARED_RULES}`,
+    model: modelFor(options, 'cseAnalyze'),
+    tools: { technicalAnalysis, marketContext, sectorComparison, cseSnapshot },
+  });
 }
