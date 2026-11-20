@@ -1,0 +1,39 @@
+# Development experiment on the free 1-year cse.lk data (Nov 2025 - Nov 2026).
+# Used to build and test the pipeline; NOT the thesis dataset (see docs/cse-data-spike.md).
+name: dev_1y
+raw_dir: data/raw/cse_public_1y
+symbols:
+  # Liquid candidates from the spike audit (CINS, CTC, CARG, EXPO excluded).
+  - JKH.N0000
+  - COMB.N0000
+  - HNB.N0000
+  - SAMP.N0000
+  - NDB.N0000
+  - DIAL.N0000
+  - HAYL.N0000
+  - HHL.N0000
+  - LIOC.N0000
+  - DIPD.N0000
+seeds: [0, 1, 2, 3, 4]
+lookback: 20
+labels:
+  zero_return: drop
+regimes:
+  level: stock
+  trend_window: 60
+  trend_threshold: 0.05
+  vol_window: 20
+  vol_reference_window: 120
+splits:
+  min_train_days: 100
+  val_days: 20
+  test_days: 20
+  step_days: 20
+  embargo_days: 1
+models:
+  prev_direction:
+  majority:
+  logreg:
+  random_forest:
+  lstm: {hidden: 32, dropout: 0.2}
+  patchtst: {patch_len: 4, stride: 2, d_model: 32, heads: 4, layers: 2, channel_independent: false}

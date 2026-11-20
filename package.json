@@ -5,7 +5,8 @@
   "scripts": {
     "start:ui": "node tools/run-without-node-options.mjs nx serve ui --output-style=dynamic-legacy",
     "start:api": "node tools/run-without-node-options.mjs nx serve api --output-style=dynamic-legacy",
-    "start": "node tools/run-without-node-options.mjs nx run-many -t serve -p ui api --output-style=dynamic-legacy"
+    "start:research": "node tools/start-research.mjs",
+    "start": "node tools/run-without-node-options.mjs nx run-many -t serve -p ui api research --output-style=dynamic-legacy"
   },
   "private": true,
   "engines": {

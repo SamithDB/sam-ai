@@ -1,14 +1,14 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { analyzeBars } from './indicators';
-import { sourceSchema, symbolInput } from './schemas';
+import { symbolInput } from './schemas';
 import type { CseToolDeps } from './types';
 
 export function createTechnicalAnalysisTool({ data }: CseToolDeps) {
   return createTool({
     id: 'technical-analysis',
     description:
-      'Compute technical indicators for one CSE stock from its daily history: SMA 5/20/50, RSI(14), 5- and 20-day ' +
+      'Compute technical indicators for one CSE stock from its real stored daily history: SMA 5/20/50, RSI(14), 5- and 20-day ' +
       'returns, average daily range, trend classification and a 0-100 momentum score, plus plain-language signals and risks.',
     inputSchema: z.object({
       symbol: symbolInput,
@@ -16,7 +16,8 @@ export function createTechnicalAnalysisTool({ data }: CseToolDeps) {
     }),
     outputSchema: z.object({
       symbol: z.string(),
-      source: sourceSchema,
+      source: z.string().describe('Where the daily bars came from.'),
+      asOf: z.string().nullable().describe('Date of the latest bar analysed.'),
       barsAnalyzed: z.number(),
       lastClose: z.number(),
       sma5: z.number().nullable(),
@@ -32,8 +33,11 @@ export function createTechnicalAnalysisTool({ data }: CseToolDeps) {
       risks: z.array(z.string()),
     }),
     execute: async ({ symbol, days }) => {
-      const [snapshot, bars] = await Promise.all([data.getSnapshot(symbol), data.getHistory(symbol, days)]);
-      return { symbol: snapshot.symbol, source: snapshot.source, ...analyzeBars(bars) };
+      const { bars, source } = await data.getHistory(symbol, days);
+      if (bars.length === 0) {
+        throw new Error(`No stored daily history for ${symbol}.`);
+      }
+      return { symbol: symbol.toUpperCase(), source, asOf: bars.at(-1)?.barDate ?? null, ...analyzeBars(bars) };
     },
   });
 }

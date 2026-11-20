@@ -6,6 +6,7 @@ import { defaultApiBaseUrl } from './api-config';
 
 // Lazy-loaded so the AI SDK and markdown renderer stay out of the initial bundle.
 const ChatPage = lazy(() => import('./chat.page'));
+const ResearchPage = lazy(() => import('./research.page'));
 
 function HomePage() {
   return (
@@ -18,7 +19,10 @@ function HomePage() {
           specialist agents for data, analysis, reports and watchlist alerts.
         </p>
         <div className={styles.actions}>
-          <Link to="/chat" className={styles.explorerButton}>
+          <Link to="/research" className={styles.explorerButton}>
+            View research results
+          </Link>
+          <Link to="/chat" className={styles.secondaryButton}>
             Open research assistant
           </Link>
           <Link to="/api-explorer" className={styles.secondaryButton}>
@@ -50,6 +54,14 @@ export function App() {
         element={
           <Suspense fallback={<div className={styles.shell}>Loading assistant...</div>}>
             <ChatPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/research"
+        element={
+          <Suspense fallback={<div className={styles.shell}>Loading results...</div>}>
+            <ResearchPage />
           </Suspense>
         }
       />

@@ -73,8 +73,10 @@ export function analyzeBars(bars: CseHistoricalBar[]): TechnicalSummary {
   const rsi14 = rsi(closes, 14);
   const change5dPercent = changeOver(closes, 5);
   const change20dPercent = changeOver(closes, 20);
-  const avgDailyRangePercent = sorted.length
-    ? round(sorted.reduce((sum, bar) => sum + ((bar.highPrice - bar.lowPrice) / (bar.closePrice || 1)) * 100, 0) / sorted.length)
+  // Only bars where the source published both high and low; missing values are skipped, never filled in.
+  const ranged = sorted.filter((bar) => bar.highPrice !== null && bar.lowPrice !== null && bar.closePrice > 0);
+  const avgDailyRangePercent = ranged.length
+    ? round(ranged.reduce((sum, bar) => sum + (((bar.highPrice as number) - (bar.lowPrice as number)) / bar.closePrice) * 100, 0) / ranged.length)
     : null;
 
   let trend: Trend = 'sideways';

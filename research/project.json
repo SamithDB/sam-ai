@@ -1,0 +1,16 @@
+{
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "name": "research",
+  "projectType": "application",
+  "sourceRoot": "research/src",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node tools/start-research.mjs",
+        "cwd": "{workspaceRoot}"
+      },
+      "continuous": true
+    }
+  }
+}

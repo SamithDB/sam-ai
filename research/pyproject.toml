@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cse-xai"
+version = "0.1.0"
+description = "Temporal reliability of explainable deep learning for CSE stock-direction prediction (MSc research pipeline)"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "pyarrow>=16",
+  "scikit-learn>=1.5",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# Added in later phases: torch (LSTM/PatchTST), captum + shap (XAI), statsmodels (analysis).
+dl = ["torch>=2.6"]
+xai = ["captum>=0.8", "shap>=0.46"]
+analysis = ["statsmodels>=0.14", "matplotlib>=3.9"]
+# HTTP service used by the TS app: data sync into MongoDB + live predictions (src/cse_xai/service.py).
+service = ["fastapi>=0.115", "uvicorn>=0.30", "pymongo>=4.8"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

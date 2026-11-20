@@ -2,16 +2,19 @@ import { createAlertWatchlistAgent } from './alert-watchlist-agent';
 import { createCseAnalyzeAgent } from './cse-analyze-agent';
 import { createDataRetrieveAgent } from './data-retrieve-agent';
 import { createReportAgent } from './report-agent';
+import { createResearchAgent } from './research-agent';
 import { createSupervisorAgent } from './supervisor-agent';
 import type { AgentTeamOptions } from './types';
 
 export * from './types';
 export { SUPERVISOR_AGENT_ID } from './supervisor-agent';
+export { RESEARCH_AGENT_ID } from './research-agent';
 export {
   createAlertWatchlistAgent,
   createCseAnalyzeAgent,
   createDataRetrieveAgent,
   createReportAgent,
+  createResearchAgent,
   createSupervisorAgent,
 };
 
@@ -24,14 +27,16 @@ export function createAgentTeam(options: AgentTeamOptions) {
   const cseAnalyzeAgent = createCseAnalyzeAgent(options);
   const reportAgent = createReportAgent(options);
   const alertWatchlistAgent = createAlertWatchlistAgent(options);
+  const researchAgent = createResearchAgent(options);
   const supervisorAgent = createSupervisorAgent(options, {
     dataRetrieveAgent,
     cseAnalyzeAgent,
     reportAgent,
     alertWatchlistAgent,
+    researchAgent,
   });
 
-  return { supervisorAgent, dataRetrieveAgent, cseAnalyzeAgent, reportAgent, alertWatchlistAgent };
+  return { supervisorAgent, dataRetrieveAgent, cseAnalyzeAgent, reportAgent, alertWatchlistAgent, researchAgent };
 }
 
 export type AgentTeam = ReturnType<typeof createAgentTeam>;

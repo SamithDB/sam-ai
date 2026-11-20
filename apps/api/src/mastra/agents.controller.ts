@@ -58,8 +58,10 @@ export class AgentsController {
       version: 'v6',
       params: { messages: body.messages ?? [], trigger: body.trigger, requestContext, maxSteps: MAX_STEPS },
       onError: (error) => {
-        this.logger.error(`Chat stream failed: ${error instanceof Error ? error.message : String(error)}`);
-        return 'The assistant hit an error. Check the API logs (is OPENAI_API_KEY set?).';
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Chat stream failed: ${message}`);
+        // Surface the provider's reason (e.g. no credits, invalid key) instead of a generic hint.
+        return `The assistant hit an error: ${message.slice(0, 300)}`;
       },
     });
 

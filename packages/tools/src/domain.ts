@@ -1,101 +1,112 @@
 // Domain types for Colombo Stock Exchange data, shared by the API and the agent tools.
+// Every value comes from a real source (the public cse.lk endpoints, or daily bars stored in MongoDB).
+// A field the source does not publish is null; nothing is estimated or filled in.
 
-export type CseSourceMode = 'fixture' | 'live';
+import type { TechnicalSummary } from './indicators';
 
 export interface CseSecurityMaster {
   symbol: string;
+  /** Ticker without the share-class suffix, e.g. "JKH" for "JKH.N0000". */
   companyId: string;
   companyName: string;
-  sectorName: string;
-  instrumentType: 'equity' | 'index' | 'other';
-  isActive: boolean;
+  /** N = voting ordinary shares, X = non-voting; anything else (debentures, rights, warrants...) is "other". */
+  instrumentType: 'equity' | 'other';
+  lastTradedPrice: number | null;
 }
 
 export interface CseCompanySnapshot {
   symbol: string;
   companyName: string;
-  tradedDate: string;
+  /** Colombo date of the last trade; null if the stock has not traded in the current session data. */
+  tradedDate: string | null;
   lastTradedPrice: number;
-  previousClose: number;
-  openPrice: number;
-  highPrice: number;
-  lowPrice: number;
-  changeValue: number;
-  changePercent: number;
-  volume: number;
-  turnover: number;
-  marketCap: number;
-  beta: number;
-  foreignHoldings: number;
-  week52High: number;
-  week52Low: number;
-  ytdHigh: number;
-  ytdLow: number;
-  source: CseSourceMode;
+  previousClose: number | null;
+  openPrice: number | null;
+  highPrice: number | null;
+  lowPrice: number | null;
+  changeValue: number | null;
+  changePercent: number | null;
+  volume: number | null;
+  turnover: number | null;
+  marketCap: number | null;
+  betaAspi: number | null;
+  betaSpsl20: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+  ytdHigh: number | null;
+  ytdLow: number | null;
+  source: string;
+  fetchedAt: string;
 }
 
+/** One stored daily bar. cse.lk does not publish the daily open, so openPrice is usually null. */
 export interface CseHistoricalBar {
   barDate: string;
-  openPrice: number;
-  highPrice: number;
-  lowPrice: number;
+  openPrice: number | null;
+  highPrice: number | null;
+  lowPrice: number | null;
   closePrice: number;
-  volume: number;
-  turnover: number;
+  volume: number | null;
 }
 
 export interface CseMarketIndex {
-  indexCode: 'ASPI' | 'SNP';
+  indexCode: 'ASPI' | 'SPSL20';
   label: string;
-  tradedDate: string;
-  closeValue: number;
-  changeValue: number;
-  changePercent: number;
-  volume: number;
-  turnover: number;
+  asOf: string | null;
+  value: number;
+  high: number | null;
+  low: number | null;
+  changeValue: number | null;
+  changePercent: number | null;
 }
 
 export interface CseMarketSummary {
-  tradedDate: string;
+  tradedDate: string | null;
+  marketStatus: string | null;
+  totalTurnover: number | null;
+  totalShareVolume: number | null;
+  totalTrades: number | null;
+  /** Securities in the cse.lk trade summary whose price is up / down / unchanged vs the previous close. */
   advancers: number;
   decliners: number;
   unchanged: number;
-  totalTurnover: number;
-  totalVolume: number;
-  marketStatus: string;
+  /** Official counts from cse.lk's daily market summary. */
+  tradedCompanies: number | null;
+  listedCompanies: number | null;
+}
+
+export interface CseSector {
+  name: string;
+  indexName: string;
+  value: number;
+  changeValue: number | null;
+  changePercent: number | null;
+  turnover: number | null;
+  shareVolume: number | null;
+  trades: number | null;
 }
 
 export interface CseAnnouncement {
-  symbol: string;
   announcementId: string;
+  /** ISO date (YYYY-MM-DD). */
   announcementDate: string;
+  company: string;
+  /** Full symbol when it can be matched to a listed security, else null. */
+  symbol: string | null;
   title: string;
-  summary: string;
   category: string;
-  url: string;
+  /** Link to the filed document when cse.lk provides one. */
+  url: string | null;
 }
 
 export interface CseAnalysisReport {
   symbol: string;
   companyName: string;
   snapshot: CseCompanySnapshot;
-  history: CseHistoricalBar[];
+  technical: TechnicalSummary;
+  barsSource: string;
   marketSummary: CseMarketSummary;
   marketIndexes: CseMarketIndex[];
   announcements: CseAnnouncement[];
-  signals: string[];
-  risks: string[];
-  conclusion: string;
   generatedAt: string;
-  source: CseSourceMode;
-}
-
-export interface CseIngestionResult {
-  jobName: string;
-  status: 'success' | 'partial' | 'failed';
-  recordsInserted: number;
-  recordsUpdated: number;
-  details: string;
-  fetchedAt: string;
-  source: CseSourceMode;
 }

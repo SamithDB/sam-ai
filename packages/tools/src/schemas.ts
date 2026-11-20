@@ -10,77 +10,88 @@ export const securitySchema = z.object({
   symbol: z.string(),
   companyId: z.string(),
   companyName: z.string(),
-  sectorName: z.string(),
-  instrumentType: z.enum(['equity', 'index', 'other']),
-  isActive: z.boolean(),
+  instrumentType: z.enum(['equity', 'other']),
+  lastTradedPrice: z.number().nullable(),
 });
 
-export const sourceSchema = z
-  .enum(['fixture', 'live'])
-  .describe('"fixture" means sample data, not real market data. Always tell the user when data is sample data.');
+const num = z.number().nullable();
 
 export const snapshotSchema = z.object({
   symbol: z.string(),
   companyName: z.string(),
-  tradedDate: z.string(),
+  tradedDate: z.string().nullable(),
   lastTradedPrice: z.number(),
-  previousClose: z.number(),
-  openPrice: z.number(),
-  highPrice: z.number(),
-  lowPrice: z.number(),
-  changeValue: z.number(),
-  changePercent: z.number(),
-  volume: z.number(),
-  turnover: z.number(),
-  marketCap: z.number(),
-  beta: z.number(),
-  foreignHoldings: z.number(),
-  week52High: z.number(),
-  week52Low: z.number(),
-  ytdHigh: z.number(),
-  ytdLow: z.number(),
-  source: sourceSchema,
+  previousClose: num,
+  openPrice: num,
+  highPrice: num,
+  lowPrice: num,
+  changeValue: num,
+  changePercent: num,
+  volume: num,
+  turnover: num,
+  marketCap: num,
+  betaAspi: num,
+  betaSpsl20: num,
+  week52High: num,
+  week52Low: num,
+  ytdHigh: num,
+  ytdLow: num,
+  source: z.string(),
+  fetchedAt: z.string(),
 });
 
 export const barSchema = z.object({
   barDate: z.string(),
-  openPrice: z.number(),
-  highPrice: z.number(),
-  lowPrice: z.number(),
+  openPrice: num,
+  highPrice: num,
+  lowPrice: num,
   closePrice: z.number(),
-  volume: z.number(),
-  turnover: z.number(),
+  volume: num,
 });
 
 export const announcementSchema = z.object({
-  symbol: z.string(),
   announcementId: z.string(),
   announcementDate: z.string(),
+  company: z.string(),
+  symbol: z.string().nullable(),
   title: z.string(),
-  summary: z.string(),
   category: z.string(),
-  url: z.string(),
+  url: z.string().nullable(),
 });
 
 export const marketSummarySchema = z.object({
-  tradedDate: z.string(),
+  tradedDate: z.string().nullable(),
+  marketStatus: z.string().nullable(),
+  totalTurnover: num,
+  totalShareVolume: num,
+  totalTrades: num,
   advancers: z.number(),
   decliners: z.number(),
   unchanged: z.number(),
-  totalTurnover: z.number(),
-  totalVolume: z.number(),
-  marketStatus: z.string(),
+  tradedCompanies: num,
+  listedCompanies: num,
 });
 
 export const marketIndexSchema = z.object({
-  indexCode: z.enum(['ASPI', 'SNP']),
+  indexCode: z.enum(['ASPI', 'SPSL20']),
   label: z.string(),
-  tradedDate: z.string(),
-  closeValue: z.number(),
-  changeValue: z.number(),
-  changePercent: z.number(),
-  volume: z.number(),
-  turnover: z.number(),
+  asOf: z.string().nullable(),
+  value: z.number(),
+  high: num,
+  low: num,
+  changeValue: num,
+  changePercent: num,
+});
+
+export const sectorSchema = z.object({
+  name: z.string(),
+  indexName: z.string(),
+  value: z.number(),
+  changeValue: num,
+  changePercent: num,
+  turnover: num,
+  shareVolume: num,
+  trades: num,
 });
 
 export const watchlistEntrySchema = z.object({

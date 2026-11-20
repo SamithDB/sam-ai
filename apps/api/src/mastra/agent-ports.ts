@@ -3,20 +3,35 @@ import type {
   AppNotification,
   CseDataSource,
   Notifier,
+  ResearchPort,
   WatchlistEntry,
   WatchlistStore,
 } from '@sam-ai/tools';
 import type { CseService } from '../cse/cse.service';
+import type { ResearchLiveService } from '../research/research-live.service';
+import type { ResearchService } from '../research/research.service';
 
 /** Adapts the Nest CseService to the data port the agent tools depend on. */
 export function createCseDataSource(cse: CseService): CseDataSource {
   return {
-    listSymbols: async () => cse.getSecurityMaster(),
+    listSymbols: () => cse.getSecurityMaster(),
     getSnapshot: (symbol) => cse.getCompanySnapshot(symbol),
     getHistory: (symbol, days) => cse.getHistoricalBars(symbol, days),
-    getAnnouncements: async (symbol) => cse.getAnnouncements(symbol),
+    getAnnouncements: (symbol) => cse.getAnnouncements(symbol),
     getMarketSummary: () => cse.getMarketSummary(),
     getMarketIndexes: () => cse.getMarketIndexes(),
+    getSectors: () => cse.getSectors(),
+  };
+}
+
+/** Adapts the research services (summary.json files + the Python live service) to the research tools' port. */
+export function createResearchPort(results: ResearchService, live: ResearchLiveService): ResearchPort {
+  return {
+    listExperiments: () => results.listExperiments(),
+    getExperiment: (name) => results.getExperiment(name),
+    getDataStatus: () => live.getDataStatus(),
+    listPredictions: () => live.listPredictions(),
+    getPrediction: (symbol) => live.getPrediction(symbol),
   };
 }
 

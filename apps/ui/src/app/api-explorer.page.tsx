@@ -32,19 +32,11 @@ const apiEndpoints: ApiEndpoint[] = [
     autoLoad: true,
   },
   {
-    id: 'items',
-    label: 'Sample items',
-    method: 'GET',
-    path: '/items',
-    description: 'Starter endpoint kept for UI verification.',
-    autoLoad: true,
-  },
-  {
     id: 'symbols',
-    label: 'Security master',
+    label: 'Listed securities',
     method: 'GET',
     path: '/symbols',
-    description: 'Local CSE symbol registry.',
+    description: "Every security in today's cse.lk trade summary.",
     autoLoad: true,
   },
   {
@@ -52,7 +44,7 @@ const apiEndpoints: ApiEndpoint[] = [
     label: 'Market summary',
     method: 'GET',
     path: '/market/summary',
-    description: 'Intraday market summary snapshot.',
+    description: 'Turnover, trades, market status and breadth (live cse.lk).',
     autoLoad: true,
   },
   {
@@ -60,7 +52,23 @@ const apiEndpoints: ApiEndpoint[] = [
     label: 'Market indexes',
     method: 'GET',
     path: '/market/indexes',
-    description: 'ASPI and S&P SL20 index data.',
+    description: 'ASPI and S&P SL20 (live cse.lk).',
+    autoLoad: true,
+  },
+  {
+    id: 'market-sectors',
+    label: 'Sector indices',
+    method: 'GET',
+    path: '/market/sectors',
+    description: 'S&P/CSE sector index moves today (live cse.lk).',
+    autoLoad: true,
+  },
+  {
+    id: 'snapshot',
+    label: 'Company snapshot',
+    method: 'GET',
+    path: `/analysis/${demoSymbol}/snapshot`,
+    description: 'Latest price, ranges, market cap and beta (live cse.lk).',
     autoLoad: true,
   },
   {
@@ -68,15 +76,15 @@ const apiEndpoints: ApiEndpoint[] = [
     label: 'Analysis report',
     method: 'GET',
     path: `/analysis/${demoSymbol}`,
-    description: 'Structured report for the demo symbol.',
+    description: 'Snapshot, technical indicators on stored daily bars, market context and announcements.',
     autoLoad: true,
   },
   {
     id: 'history',
-    label: 'History bars',
+    label: 'Daily history',
     method: 'GET',
-    path: `/analysis/${demoSymbol}/history`,
-    description: 'Historical OHLCV bars.',
+    path: `/analysis/${demoSymbol}/history?days=30`,
+    description: 'Real daily bars from the research store (MongoDB).',
     autoLoad: true,
   },
   {
@@ -84,22 +92,8 @@ const apiEndpoints: ApiEndpoint[] = [
     label: 'Announcements',
     method: 'GET',
     path: `/analysis/${demoSymbol}/announcements`,
-    description: 'Recent company announcements.',
+    description: 'Corporate announcements and financial filings (live cse.lk).',
     autoLoad: true,
-  },
-  {
-    id: 'ingest-symbols',
-    label: 'Ingest symbols',
-    method: 'POST',
-    path: '/ingest/symbols',
-    description: 'Store the symbol registry in the database.',
-  },
-  {
-    id: 'ingest-all',
-    label: 'Ingest all',
-    method: 'POST',
-    path: '/ingest/all',
-    description: 'Run the full ingestion pipeline.',
   },
 ];
 
@@ -196,7 +190,7 @@ export function ApiExplorerPage() {
           <h1>Live responses for every API call in one dashboard</h1>
           <p className={styles.subtitle}>
             Use this page to verify each backend route, inspect the JSON response,
-            and run the ingestion actions when needed.
+            all served from live cse.lk data or the real stored daily bars.
           </p>
         </div>
 

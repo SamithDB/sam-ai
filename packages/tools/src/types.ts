@@ -4,6 +4,7 @@ import type {
   CseHistoricalBar,
   CseMarketIndex,
   CseMarketSummary,
+  CseSector,
   CseSecurityMaster,
 } from './domain';
 
@@ -13,12 +14,15 @@ import type {
  */
 export interface CseDataSource {
   listSymbols(): Promise<CseSecurityMaster[]>;
-  /** Accepts `JKH` or `JKH.N0000`; throws when the symbol is unknown. */
+  /** Accepts `JKH` or `JKH.N0000`; throws when the symbol is unknown or live data is unavailable. */
   getSnapshot(symbol: string): Promise<CseCompanySnapshot>;
-  getHistory(symbol: string, days: number): Promise<CseHistoricalBar[]>;
+  /** Real stored daily bars, oldest first, plus a description of where they came from. */
+  getHistory(symbol: string, days: number): Promise<{ bars: CseHistoricalBar[]; source: string }>;
   getAnnouncements(symbol?: string): Promise<CseAnnouncement[]>;
   getMarketSummary(): Promise<CseMarketSummary>;
   getMarketIndexes(): Promise<CseMarketIndex[]>;
+  /** Today's S&P/CSE sector index moves (cse.lk does not publish a company-to-sector mapping). */
+  getSectors(): Promise<CseSector[]>;
 }
 
 export interface WatchlistEntry {

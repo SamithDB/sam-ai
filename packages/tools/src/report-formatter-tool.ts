@@ -14,15 +14,11 @@ export const reportInputSchema = z.object({
   signals: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([]),
   conclusion: z.string(),
-  isSampleData: z.boolean().default(false).describe('True when any input came from fixture/sample data.'),
 });
 
 export function formatReportMarkdown(input: z.output<typeof reportInputSchema>): string {
   const lines: string[] = [`## ${input.companyName} (${input.symbol})`, '', `**${input.headline}**`, '', input.summary, ''];
 
-  if (input.isSampleData) {
-    lines.push('> Note: based on sample (fixture) data, not live market data.', '');
-  }
   if (input.keyMetrics.length) {
     lines.push('| Metric | Value |', '| --- | --- |', ...input.keyMetrics.map((m) => `| ${m.label} | ${m.value} |`), '');
   }

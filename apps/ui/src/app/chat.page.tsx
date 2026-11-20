@@ -7,7 +7,7 @@ import {
 } from 'ai';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
 import { defaultApiBaseUrl } from './api-config';
 import styles from './chat.page.module.scss';
@@ -17,6 +17,9 @@ type AgentStatus = { enabled: boolean; model: string | null; agents: { name: str
 const apiBaseUrl = defaultApiBaseUrl.replace(/\/$/, '');
 
 const SUGGESTIONS = [
+  'Predict JKH for the next trading day and explain why',
+  'Show the latest research predictions for all stocks',
+  'How reliable are the research models? Compare LSTM and PatchTST',
   'Give me a research report on JKH',
   'How are the banking stocks doing today?',
   'What is the latest price of HNB and any recent announcements?',
@@ -28,6 +31,7 @@ const AGENT_LABELS: Record<string, string> = {
   cseAnalyzeAgent: 'CSE Analyze Agent',
   reportAgent: 'Report Agent',
   alertWatchlistAgent: 'Alert & Watchlist Agent',
+  researchAgent: 'Research Agent',
 };
 
 /** Stable anonymous id so the watchlist survives page reloads in this browser. */
@@ -95,7 +99,9 @@ export function ChatPage() {
     [userId],
   );
   const { messages, sendMessage, status, stop, error, regenerate } = useChat({ transport });
-  const [input, setInput] = useState('');
+  const [searchParams] = useSearchParams();
+  // `/chat?q=...` (e.g. from the research page) pre-fills the question; the user still presses Send.
+  const [input, setInput] = useState(() => searchParams.get('q') ?? '');
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);

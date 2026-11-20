@@ -1,343 +1,368 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Env } from '../config/env';
 import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { analyzeBars } from '@sam-ai/tools';
+import type { Env } from '../config/env';
+import { ResearchLiveService } from '../research/research-live.service';
+import type {
   CseAnalysisReport,
   CseAnnouncement,
   CseCompanySnapshot,
   CseHistoricalBar,
-  CseIngestionResult,
   CseMarketIndex,
   CseMarketSummary,
+  CseSector,
   CseSecurityMaster,
 } from './cse.types';
 
+/** Raw shapes of the public cse.lk endpoints (only the fields we use). */
+interface TradeSummaryRow {
+  symbol: string;
+  name: string;
+  price: number | null;
+  previousClose: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  change: number | null;
+  percentageChange: number | null;
+  sharevolume: number | null;
+  turnover: number | null;
+  marketCap: number | null;
+  lastTradedTime: number | null;
+}
+interface SymbolInfo {
+  symbol: string;
+  name: string;
+  lastTradedPrice: number | null;
+  previousClose: number | null;
+  hiTrade: number | null;
+  lowTrade: number | null;
+  change: number | null;
+  changePercentage: number | null;
+  tdyShareVolume: number | null;
+  tdyTurnover: number | null;
+  marketCap: number | null;
+  p12HiPrice: number | null;
+  p12LowPrice: number | null;
+  ytdHiPrice: number | null;
+  ytdLowPrice: number | null;
+}
+interface IndexPoint {
+  value: number;
+  highValue: number | null;
+  lowValue: number | null;
+  change: number | null;
+  percentage: number | null;
+  timestamp: number | null;
+}
+
+const SOURCE = 'cse.lk (live)';
+const COLOMBO_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const CACHE_MS = 60_000;
+const ANNOUNCEMENT_CACHE_MS = 5 * 60_000;
+const MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const colomboDate = (ms: number | null | undefined): string | null =>
+  typeof ms === 'number' && ms > 0 ? new Date(ms + COLOMBO_OFFSET_MS).toISOString().slice(0, 10) : null;
+const colomboTime = (ms: number | null | undefined): string | null =>
+  typeof ms === 'number' && ms > 0 ? new Date(ms).toISOString() : null;
+/** "13 Nov 2026" or "13 Nov 2026 08:55:29 PM" -> "2026-11-13". */
+const parseDayMonthYear = (text: string | null | undefined): string | null => {
+  const m = text?.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})/);
+  const month = m ? MONTHS[m[2].toLowerCase()] : undefined;
+  return m && month ? `${m[3]}-${month}-${m[1].padStart(2, '0')}` : null;
+};
+
+/**
+ * Live Colombo Stock Exchange data from the public cse.lk endpoints, plus real daily history from the
+ * research store. There is no sample or fallback data: when cse.lk cannot be reached the request fails
+ * with 503, and a value cse.lk does not publish is returned as null.
+ */
 @Injectable()
 export class CseService {
   private readonly logger = new Logger(CseService.name);
-  private readonly apiBaseUrl: string | undefined;
+  private readonly apiBaseUrl: string;
+  private readonly cache = new Map<string, { expires: number; value: Promise<unknown> }>();
 
-  constructor(config: ConfigService<Env, true>) {
-    this.apiBaseUrl = config.get('CSE_API_BASE_URL', { infer: true });
+  constructor(
+    config: ConfigService<Env, true>,
+    private readonly research: ResearchLiveService,
+  ) {
+    this.apiBaseUrl = config.get('CSE_API_BASE_URL', { infer: true }).replace(/\/+$/, '');
   }
 
-  private readonly securityMaster: CseSecurityMaster[] = [
-    {
-      symbol: 'JKH.N0000',
-      companyId: 'JKH',
-      companyName: 'John Keells Holdings PLC',
-      sectorName: 'Diversified Holdings',
-      instrumentType: 'equity',
-      isActive: true,
-    },
-    {
-      symbol: 'HNB.N0000',
-      companyId: 'HNB',
-      companyName: 'Hatton National Bank PLC',
-      sectorName: 'Banking and Finance',
-      instrumentType: 'equity',
-      isActive: true,
-    },
-    {
-      symbol: 'COMB.N0000',
-      companyId: 'COMB',
-      companyName: 'Commercial Bank of Ceylon PLC',
-      sectorName: 'Banking and Finance',
-      instrumentType: 'equity',
-      isActive: true,
-    },
-  ];
+  // ------------------------------------------------------------------ public API
 
-  private readonly snapshotFixtures = new Map<string, CseCompanySnapshot>([
-    [
-      'JKH.N0000',
-      {
-        symbol: 'JKH.N0000',
-        companyName: 'John Keells Holdings PLC',
-        tradedDate: '2026-08-15',
-        lastTradedPrice: 198.5,
-        previousClose: 194.0,
-        openPrice: 195.0,
-        highPrice: 200.0,
-        lowPrice: 193.5,
-        changeValue: 4.5,
-        changePercent: 2.32,
-        volume: 1245000,
-        turnover: 246820000,
-        marketCap: 310000000000,
-        beta: 0.91,
-        foreignHoldings: 18.2,
-        week52High: 212.0,
-        week52Low: 148.0,
-        ytdHigh: 206.0,
-        ytdLow: 151.0,
-        source: 'fixture',
-      },
-    ],
-    [
-      'HNB.N0000',
-      {
-        symbol: 'HNB.N0000',
-        companyName: 'Hatton National Bank PLC',
-        tradedDate: '2026-08-15',
-        lastTradedPrice: 260.25,
-        previousClose: 258.0,
-        openPrice: 259.0,
-        highPrice: 262.0,
-        lowPrice: 257.0,
-        changeValue: 2.25,
-        changePercent: 0.87,
-        volume: 780000,
-        turnover: 203000000,
-        marketCap: 420000000000,
-        beta: 1.08,
-        foreignHoldings: 12.8,
-        week52High: 275.0,
-        week52Low: 205.5,
-        ytdHigh: 268.5,
-        ytdLow: 206.0,
-        source: 'fixture',
-      },
-    ],
-    [
-      'COMB.N0000',
-      {
-        symbol: 'COMB.N0000',
-        companyName: 'Commercial Bank of Ceylon PLC',
-        tradedDate: '2026-08-15',
-        lastTradedPrice: 145.75,
-        previousClose: 147.5,
-        openPrice: 147.0,
-        highPrice: 148.0,
-        lowPrice: 144.9,
-        changeValue: -1.75,
-        changePercent: -1.19,
-        volume: 950000,
-        turnover: 139000000,
-        marketCap: 205000000000,
-        beta: 1.03,
-        foreignHoldings: 9.6,
-        week52High: 161.5,
-        week52Low: 121.0,
-        ytdHigh: 159.0,
-        ytdLow: 124.5,
-        source: 'fixture',
-      },
-    ],
-  ]);
-
-  private readonly marketSummaryFixture: CseMarketSummary = {
-    tradedDate: '2026-08-15',
-    advancers: 72,
-    decliners: 58,
-    unchanged: 19,
-    totalTurnover: 1248000000,
-    totalVolume: 18240000,
-    marketStatus: 'Open',
-  };
-
-  private readonly marketIndexesFixture: CseMarketIndex[] = [
-    {
-      indexCode: 'ASPI',
-      label: 'All Share Price Index',
-      tradedDate: '2026-08-15',
-      closeValue: 11242.18,
-      changeValue: 64.81,
-      changePercent: 0.58,
-      volume: 0,
-      turnover: 0,
-    },
-    {
-      indexCode: 'SNP',
-      label: 'S&P SL20',
-      tradedDate: '2026-08-15',
-      closeValue: 4018.62,
-      changeValue: 22.34,
-      changePercent: 0.56,
-      volume: 0,
-      turnover: 0,
-    },
-  ];
-
-  private readonly announcementsFixture: CseAnnouncement[] = [
-    {
-      symbol: 'JKH.N0000',
-      announcementId: 'ANN-001',
-      announcementDate: '2026-08-14',
-      title: 'Quarterly results update',
-      summary: 'The company announced improved operating performance and stable cash flow.',
-      category: 'Financial Results',
-      url: 'https://www.cse.lk/',
-    },
-    {
-      symbol: 'HNB.N0000',
-      announcementId: 'ANN-002',
-      announcementDate: '2026-08-13',
-      title: 'Corporate disclosure',
-      summary: 'The bank issued a market disclosure related to lending activity and capital position.',
-      category: 'Disclosure',
-      url: 'https://www.cse.lk/',
-    },
-  ];
-
-  getSecurityMaster(): CseSecurityMaster[] {
-    return [...this.securityMaster];
-  }
-
-  getSymbolLookup(symbol: string): CseSecurityMaster | undefined {
-    const normalized = this.normalizeSymbol(symbol);
-    return this.securityMaster.find((entry) => entry.symbol === normalized);
+  async getSecurityMaster(): Promise<CseSecurityMaster[]> {
+    const rows = await this.tradeSummary();
+    return rows
+      .map((r) => ({
+        symbol: r.symbol,
+        companyId: r.symbol.split('.')[0],
+        companyName: r.name,
+        instrumentType: /\.[NX]\d{4}$/.test(r.symbol) ? ('equity' as const) : ('other' as const),
+        lastTradedPrice: num(r.price),
+      }))
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }
 
   async getCompanySnapshot(symbol: string): Promise<CseCompanySnapshot> {
     const normalized = this.normalizeSymbol(symbol);
-    if (this.apiBaseUrl) {
-      return (await this.fetchLiveSnapshot(normalized)) ?? this.getFixtureSnapshot(normalized);
+    const [payload, rows] = await Promise.all([
+      this.post<{ reqSymbolInfo?: SymbolInfo | null; reqSymbolBetaInfo?: Record<string, unknown> | null }>(
+        'companyInfoSummery',
+        { symbol: normalized },
+      ),
+      this.tradeSummary(),
+    ]);
+    const info = payload.reqSymbolInfo;
+    const lastTradedPrice = num(info?.lastTradedPrice);
+    if (!info || lastTradedPrice === null) {
+      throw new NotFoundException(`Unknown CSE symbol or no price published: ${normalized}`);
     }
+    const row = rows.find((r) => r.symbol === normalized);
+    const beta = payload.reqSymbolBetaInfo ?? {};
 
-    return this.getFixtureSnapshot(normalized);
+    return {
+      symbol: normalized,
+      companyName: info.name,
+      tradedDate: colomboDate(row?.lastTradedTime),
+      lastTradedPrice,
+      previousClose: num(info.previousClose),
+      openPrice: num(row?.open) || null, // 0 means "no trade yet", not a price
+      highPrice: num(info.hiTrade),
+      lowPrice: num(info.lowTrade),
+      changeValue: num(info.change),
+      changePercent: num(info.changePercentage),
+      volume: num(info.tdyShareVolume),
+      turnover: num(info.tdyTurnover),
+      marketCap: num(info.marketCap),
+      betaAspi: num(beta['triASIBetaValue']),
+      betaSpsl20: num(beta['betaValueSPSL']),
+      week52High: num(info.p12HiPrice),
+      week52Low: num(info.p12LowPrice),
+      ytdHigh: num(info.ytdHiPrice),
+      ytdLow: num(info.ytdLowPrice),
+      source: SOURCE,
+      fetchedAt: new Date().toISOString(),
+    };
   }
 
-  async getHistoricalBars(symbol: string, days = 30): Promise<CseHistoricalBar[]> {
-    return this.buildHistoricalBars(await this.getCompanySnapshot(symbol), days);
-  }
-
-  // Synthetic bars derived from the latest snapshot until a real history source is ingested.
-  private buildHistoricalBars(snapshot: CseCompanySnapshot, days: number): CseHistoricalBar[] {
-    const history: CseHistoricalBar[] = [];
-    const baseClose = snapshot.lastTradedPrice;
-    const trendBias = this.getTrendBias(snapshot.symbol);
-
-    for (let offset = days - 1; offset >= 0; offset -= 1) {
-      const date = new Date(snapshot.tradedDate);
-      date.setDate(date.getDate() - offset);
-      const cycle = Math.sin((days - offset) / 3.5) * 0.8;
-      const drift = trendBias * (days - offset - 1) * 0.12;
-      const closePrice = this.roundPrice(baseClose - drift + cycle);
-      const openPrice = this.roundPrice(closePrice - 0.35 + cycle * 0.1);
-      const highPrice = this.roundPrice(Math.max(openPrice, closePrice) + 1.15);
-      const lowPrice = this.roundPrice(Math.min(openPrice, closePrice) - 1.05);
-      const volume = Math.max(100000, Math.round(snapshot.volume * (0.55 + ((days - offset) / days) * 0.22)));
-      const turnover = Math.round(volume * closePrice);
-
-      history.push({
-        barDate: date.toISOString().slice(0, 10),
-        openPrice,
-        highPrice,
-        lowPrice,
-        closePrice,
-        volume,
-        turnover,
-      });
-    }
-
-    return history;
+  async getHistoricalBars(symbol: string, days = 60): Promise<{ bars: CseHistoricalBar[]; source: string }> {
+    const res = await this.research.getBars(this.normalizeSymbol(symbol), days);
+    return {
+      source: res.source,
+      bars: res.bars.map((b) => ({
+        barDate: b.date,
+        openPrice: b.open ?? null,
+        highPrice: b.high ?? null,
+        lowPrice: b.low ?? null,
+        closePrice: b.close,
+        volume: b.volume ?? null,
+      })),
+    };
   }
 
   async getMarketSummary(): Promise<CseMarketSummary> {
-    if (this.apiBaseUrl) {
-      return (await this.fetchLiveMarketSummary()) ?? { ...this.marketSummaryFixture };
-    }
-
-    return { ...this.marketSummaryFixture };
+    const [summary, status, daily, rows] = await Promise.all([
+      this.post<{ tradeDate?: number; tradeVolume?: number; shareVolume?: number; trades?: number }>('marketSummery'),
+      this.post<{ status?: string }>('marketStatus'),
+      this.post<unknown>('dailyMarketSummery'),
+      this.tradeSummary(),
+    ]);
+    // dailyMarketSummery is a nested list; its first record holds the official company counts.
+    const firstRecord = (v: unknown): Record<string, unknown> | undefined =>
+      Array.isArray(v) ? firstRecord(v[0]) : v && typeof v === 'object' ? (v as Record<string, unknown>) : undefined;
+    const official = firstRecord(daily) ?? {};
+    // Breadth: every security in the trade summary by its change vs the previous close.
+    const change = (r: TradeSummaryRow) => num(r.change) ?? 0;
+    return {
+      tradedDate: colomboDate(summary.tradeDate),
+      marketStatus: status.status ?? null,
+      totalTurnover: num(summary.tradeVolume), // cse.lk names the turnover value "tradeVolume"
+      totalShareVolume: num(summary.shareVolume),
+      totalTrades: num(summary.trades),
+      advancers: rows.filter((r) => change(r) > 0).length,
+      decliners: rows.filter((r) => change(r) < 0).length,
+      unchanged: rows.filter((r) => change(r) === 0).length,
+      tradedCompanies: num(official['tradeCompanyNumber']),
+      listedCompanies: num(official['listedCompanyNumber']),
+    };
   }
 
   async getMarketIndexes(): Promise<CseMarketIndex[]> {
-    if (this.apiBaseUrl) {
-      return (await this.fetchLiveMarketIndexes()) ?? [...this.marketIndexesFixture];
-    }
-
-    return [...this.marketIndexesFixture];
+    const [aspi, spsl20] = await Promise.all([this.post<IndexPoint>('aspiData'), this.post<IndexPoint>('snpData')]);
+    const toIndex = (indexCode: CseMarketIndex['indexCode'], label: string, p: IndexPoint): CseMarketIndex => {
+      const value = num(p?.value);
+      if (value === null) {
+        throw new ServiceUnavailableException(`cse.lk returned no value for ${label}`);
+      }
+      return {
+        indexCode,
+        label,
+        asOf: colomboTime(p.timestamp),
+        value,
+        high: num(p.highValue),
+        low: num(p.lowValue),
+        changeValue: num(p.change),
+        changePercent: num(p.percentage),
+      };
+    };
+    return [toIndex('ASPI', 'All Share Price Index', aspi), toIndex('SPSL20', 'S&P SL20', spsl20)];
   }
 
-  getAnnouncements(symbol?: string): CseAnnouncement[] {
-    const normalized = symbol ? this.normalizeSymbol(symbol) : undefined;
-    const announcements = normalized
-      ? this.announcementsFixture.filter((entry) => entry.symbol === normalized)
-      : this.announcementsFixture;
-
-    return [...announcements];
+  async getSectors(): Promise<CseSector[]> {
+    const rows = await this.cached('allSectors', CACHE_MS, () =>
+      this.post<Record<string, unknown>[]>('allSectors'),
+    );
+    return (Array.isArray(rows) ? rows : [])
+      .filter((r) => num(r['indexValue']) !== null)
+      .map((r) => ({
+        name: String(r['name'] ?? ''),
+        indexName: String(r['indexName'] ?? ''),
+        value: num(r['indexValue']) as number,
+        changeValue: num(r['change']),
+        changePercent: num(r['percentage']),
+        turnover: num(r['sectorTurnoverToday']),
+        shareVolume: num(r['sectorVolumeToday']),
+        trades: num(r['sectorTradeToday']),
+      }));
   }
 
+  /** Latest corporate announcements and financial filings, optionally for one company. */
+  async getAnnouncements(symbol?: string): Promise<CseAnnouncement[]> {
+    const all = await this.cached('announcements', ANNOUNCEMENT_CACHE_MS, () => this.fetchAnnouncements());
+    if (!symbol) return all;
+    const normalized = this.normalizeSymbol(symbol);
+    const companyId = normalized.split('.')[0];
+    return all.filter((a) => a.symbol === normalized || a.symbol?.split('.')[0] === companyId);
+  }
+
+  /** Snapshot + technical indicators on real stored history + market context + announcements. */
   async getAnalysis(symbol: string): Promise<CseAnalysisReport> {
     const normalized = this.normalizeSymbol(symbol);
-    const snapshot = await this.getCompanySnapshot(normalized);
-    const history = this.buildHistoricalBars(snapshot, 30);
-    const [marketSummary, marketIndexes] = await Promise.all([this.getMarketSummary(), this.getMarketIndexes()]);
-    const announcements = this.getAnnouncements(normalized);
-    const latestHistory = history.at(-1);
-    const twentyDayAverage = this.getAverageClose(history.slice(-20));
-    const fiveDayAverage = this.getAverageClose(history.slice(-5));
-
-    const signals: string[] = [];
-    const risks: string[] = [];
-
-    if (latestHistory && latestHistory.closePrice > twentyDayAverage) {
-      signals.push('Price is trading above the 20-day average, indicating positive medium-term momentum.');
-    } else {
-      risks.push('Price is not holding above the 20-day average, so momentum is still uncertain.');
+    const [snapshot, history, marketSummary, marketIndexes, announcements] = await Promise.all([
+      this.getCompanySnapshot(normalized),
+      this.getHistoricalBars(normalized, 60),
+      this.getMarketSummary(),
+      this.getMarketIndexes(),
+      this.getAnnouncements(normalized),
+    ]);
+    if (history.bars.length === 0) {
+      throw new NotFoundException(`No stored daily history for ${normalized}`);
     }
-
-    if (fiveDayAverage > twentyDayAverage) {
-      signals.push('The 5-day average is above the 20-day average, which is a short-term bullish sign.');
-    } else {
-      risks.push('The 5-day average is below the 20-day average, which weakens the short-term trend.');
-    }
-
-    if (snapshot.changePercent > 0) {
-      signals.push('The latest snapshot shows a positive day-over-day move.');
-    } else if (snapshot.changePercent < 0) {
-      risks.push('The latest snapshot shows a negative day-over-day move.');
-    }
-
-    if (announcements.length > 0) {
-      signals.push(`Latest announcement: ${announcements[0].title}.`);
-    }
-
-    const marketTone = marketSummary.advancers >= marketSummary.decliners ? 'broad market strength' : 'broad market weakness';
-    const conclusion = `${snapshot.companyName} currently shows ${snapshot.changePercent >= 0 ? 'positive' : 'negative'} price action, while the wider market shows ${marketTone}. Use this as a structured research summary, not a trade recommendation.`;
-
     return {
       symbol: normalized,
       companyName: snapshot.companyName,
       snapshot,
-      history,
+      technical: analyzeBars(history.bars),
+      barsSource: history.source,
       marketSummary,
       marketIndexes,
-      announcements,
-      signals,
-      risks,
-      conclusion,
+      announcements: announcements.slice(0, 10),
       generatedAt: new Date().toISOString(),
-      source: snapshot.source,
     };
   }
 
-  ingestSymbols(): CseIngestionResult {
-    return {
-      jobName: 'symbol-master-sync',
-      status: 'success',
-      recordsInserted: this.securityMaster.length,
-      recordsUpdated: 0,
-      details: `Loaded ${this.securityMaster.length} stock symbols from the local CSE seed dataset.`,
-      fetchedAt: new Date().toISOString(),
-      source: 'fixture',
-    };
+  // ------------------------------------------------------------------ helpers
+
+  private tradeSummary(): Promise<TradeSummaryRow[]> {
+    return this.cached('tradeSummary', CACHE_MS, async () => {
+      const payload = await this.post<{ reqTradeSummery?: TradeSummaryRow[] }>('tradeSummary');
+      if (!Array.isArray(payload.reqTradeSummery)) {
+        throw new ServiceUnavailableException('cse.lk trade summary had an unexpected format');
+      }
+      return payload.reqTradeSummery;
+    });
   }
 
-  ingestAll(): Record<string, CseIngestionResult> {
-    return {
-      symbols: this.ingestSymbols(),
-      market: {
-        jobName: 'market-context-sync',
-        status: 'success',
-        recordsInserted: this.marketIndexesFixture.length + 1,
-        recordsUpdated: 0,
-        details: 'Loaded daily market summary, market indexes, and announcement seeds.',
-        fetchedAt: new Date().toISOString(),
-        source: 'fixture',
-      },
-    };
+  private async fetchAnnouncements(): Promise<CseAnnouncement[]> {
+    const [approved, financial, securities] = await Promise.all([
+      this.post<{ approvedAnnouncements?: Record<string, unknown>[] }>('approvedAnnouncement'),
+      this.post<{ reqFinancialAnnouncemnets?: Record<string, unknown>[] }>('getFinancialAnnouncement'),
+      this.getSecurityMaster(),
+    ]);
+    // Prefer the voting share when a company has several listed instruments.
+    const pick = (candidates: CseSecurityMaster[]) =>
+      (candidates.find((s) => s.symbol.endsWith('.N0000')) ?? candidates[0])?.symbol ?? null;
+    const byName = (name: string) => pick(securities.filter((s) => s.companyName.toUpperCase() === name.toUpperCase()));
+    const byTicker = (ticker: string) => pick(securities.filter((s) => s.companyId === ticker.toUpperCase()));
+
+    const out: CseAnnouncement[] = [];
+    for (const a of approved.approvedAnnouncements ?? []) {
+      const date = parseDayMonthYear(a['dateOfAnnouncement'] as string);
+      const company = String(a['company'] ?? '');
+      if (!date || !company) continue;
+      const rawSymbol = typeof a['symbol'] === 'string' ? (a['symbol'] as string) : null;
+      out.push({
+        announcementId: `approved-${a['announcementId'] ?? a['id']}`,
+        announcementDate: date,
+        company,
+        symbol: rawSymbol ? (rawSymbol.includes('.') ? rawSymbol : byTicker(rawSymbol)) : byName(company),
+        title: String(a['remarks'] ?? a['announcementCategory'] ?? 'Announcement'),
+        category: String(a['announcementCategory'] ?? 'Announcement'),
+        url: null,
+      });
+    }
+    for (const f of financial.reqFinancialAnnouncemnets ?? []) {
+      const date = parseDayMonthYear(f['uploadedDate'] as string);
+      const path = typeof f['path'] === 'string' ? (f['path'] as string) : null;
+      if (!date) continue;
+      out.push({
+        announcementId: `financial-${f['id']}`,
+        announcementDate: date,
+        company: String(f['name'] ?? ''),
+        symbol: typeof f['symbol'] === 'string' ? byTicker(f['symbol'] as string) : null,
+        title: String(f['fileText'] ?? 'Financial statement'),
+        category: 'Financial Statements',
+        // Verified pattern: filed documents are served from cdn.cse.lk/<path>.
+        url: path ? `https://cdn.cse.lk/${encodeURI(path)}` : null,
+      });
+    }
+    return out.sort((a, b) => b.announcementDate.localeCompare(a.announcementDate));
+  }
+
+  private cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+    const hit = this.cache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.value as Promise<T>;
+    const value = load();
+    this.cache.set(key, { expires: Date.now() + ttlMs, value });
+    value.catch(() => this.cache.delete(key)); // never cache a failure
+    return value;
+  }
+
+  private async post<T>(endpoint: string, body: Record<string, string> = {}): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiBaseUrl}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', Accept: 'application/json' },
+        body: new URLSearchParams(body),
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`cse.lk ${endpoint} unreachable: ${message}`);
+      throw new ServiceUnavailableException(`Live CSE data is unavailable (cse.lk ${endpoint}: ${message})`);
+    }
+    if (response.status === 404 && body['symbol']) {
+      throw new NotFoundException(`Unknown CSE symbol: ${body['symbol']}`);
+    }
+    if (!response.ok) {
+      this.logger.warn(`cse.lk ${endpoint} returned HTTP ${response.status}`);
+      throw new ServiceUnavailableException(`Live CSE data is unavailable (cse.lk ${endpoint}: HTTP ${response.status})`);
+    }
+    return (await response.json()) as T;
   }
 
   private normalizeSymbol(value: string): string {
@@ -345,271 +370,6 @@ export class CseService {
     if (!trimmed) {
       throw new BadRequestException('Symbol is required');
     }
-
     return trimmed.includes('.') ? trimmed : `${trimmed}.N0000`;
-  }
-
-  private getFixtureSnapshot(symbol: string): CseCompanySnapshot {
-    const snapshot = this.snapshotFixtures.get(symbol);
-    if (!snapshot) {
-      const master = this.getSymbolLookup(symbol);
-      if (!master) {
-        throw new NotFoundException(`Unknown CSE symbol: ${symbol}`);
-      }
-
-      return this.buildFallbackSnapshot(master);
-    }
-
-    return { ...snapshot };
-  }
-
-  private buildFallbackSnapshot(symbol: CseSecurityMaster): CseCompanySnapshot {
-    const basePrice = this.roundPrice(125 + this.getTrendBias(symbol.symbol) * 18 + symbol.companyName.length * 0.6);
-    const previousClose = this.roundPrice(basePrice - 1.8);
-
-    return {
-      symbol: symbol.symbol,
-      companyName: symbol.companyName,
-      tradedDate: '2026-08-15',
-      lastTradedPrice: basePrice,
-      previousClose,
-      openPrice: this.roundPrice(previousClose + 0.4),
-      highPrice: this.roundPrice(basePrice + 1.6),
-      lowPrice: this.roundPrice(basePrice - 1.9),
-      changeValue: this.roundPrice(basePrice - previousClose),
-      changePercent: this.roundPercent(((basePrice - previousClose) / previousClose) * 100),
-      volume: 600000,
-      turnover: Math.round(600000 * basePrice),
-      marketCap: Math.round(basePrice * 1200000000),
-      beta: 1,
-      foreignHoldings: 10,
-      week52High: this.roundPrice(basePrice * 1.12),
-      week52Low: this.roundPrice(basePrice * 0.78),
-      ytdHigh: this.roundPrice(basePrice * 1.08),
-      ytdLow: this.roundPrice(basePrice * 0.82),
-      source: 'fixture',
-    };
-  }
-
-  private async fetchLiveSnapshot(symbol: string): Promise<CseCompanySnapshot | null> {
-    const payload = await this.postForm('/companyInfoSummery', { symbol });
-    if (!payload) {
-      return null;
-    }
-
-    const companyName = this.pickString(payload, ['companyName', 'name', 'company']);
-    const previousClose = this.pickNumber(payload, ['previousClose', 'prevClose', 'previous_close']);
-    const lastTradedPrice = this.pickNumber(payload, ['lastTradedPrice', 'ltp', 'last_price', 'price', 'close']);
-
-    if (!companyName || lastTradedPrice === undefined || previousClose === undefined) {
-      this.logger.warn(`Live snapshot payload for ${symbol} did not contain expected fields; using fixture data.`);
-      return null;
-    }
-
-    const openPrice = this.pickNumber(payload, ['openPrice', 'open']) ?? previousClose;
-    const highPrice = this.pickNumber(payload, ['highPrice', 'high']) ?? lastTradedPrice;
-    const lowPrice = this.pickNumber(payload, ['lowPrice', 'low']) ?? lastTradedPrice;
-    const volume = this.pickNumber(payload, ['volume', 'qty']) ?? 0;
-    const turnover = this.pickNumber(payload, ['turnover', 'value']) ?? Math.round(volume * lastTradedPrice);
-
-    return {
-      symbol,
-      companyName,
-      tradedDate: this.pickString(payload, ['tradedDate', 'date', 'marketDate']) ?? '2026-08-15',
-      lastTradedPrice,
-      previousClose,
-      openPrice,
-      highPrice,
-      lowPrice,
-      changeValue: this.pickNumber(payload, ['changeValue', 'change']) ?? this.roundPrice(lastTradedPrice - previousClose),
-      changePercent: this.pickNumber(payload, ['changePercent', 'change_pct']) ?? this.roundPercent(((lastTradedPrice - previousClose) / previousClose) * 100),
-      volume,
-      turnover,
-      marketCap: this.pickNumber(payload, ['marketCap', 'market_cap']) ?? 0,
-      beta: this.pickNumber(payload, ['beta']) ?? 1,
-      foreignHoldings: this.pickNumber(payload, ['foreignHoldings', 'foreign_holdings']) ?? 0,
-      week52High: this.pickNumber(payload, ['week52High', 'high52']) ?? highPrice,
-      week52Low: this.pickNumber(payload, ['week52Low', 'low52']) ?? lowPrice,
-      ytdHigh: this.pickNumber(payload, ['ytdHigh']) ?? highPrice,
-      ytdLow: this.pickNumber(payload, ['ytdLow']) ?? lowPrice,
-      source: 'live',
-    };
-  }
-
-  private async fetchLiveMarketSummary(): Promise<CseMarketSummary | null> {
-    const payload = await this.postForm('/dailyMarketSummery', {});
-    if (!payload) {
-      return null;
-    }
-
-    const summary = this.pickObject(payload, ['data', 'summary', 'result']) ?? payload;
-    const advancers = this.pickNumber(summary, ['advancers']) ?? this.marketSummaryFixture.advancers;
-    const decliners = this.pickNumber(summary, ['decliners']) ?? this.marketSummaryFixture.decliners;
-    const unchanged = this.pickNumber(summary, ['unchanged']) ?? this.marketSummaryFixture.unchanged;
-
-    return {
-      tradedDate: this.pickString(summary, ['tradedDate', 'date']) ?? this.marketSummaryFixture.tradedDate,
-      advancers,
-      decliners,
-      unchanged,
-      totalTurnover: this.pickNumber(summary, ['totalTurnover', 'turnover']) ?? this.marketSummaryFixture.totalTurnover,
-      totalVolume: this.pickNumber(summary, ['totalVolume', 'volume']) ?? this.marketSummaryFixture.totalVolume,
-      marketStatus: this.pickString(summary, ['marketStatus', 'status']) ?? this.marketSummaryFixture.marketStatus,
-    };
-  }
-
-  private async fetchLiveMarketIndexes(): Promise<CseMarketIndex[] | null> {
-    const [aspiPayload, snpPayload] = await Promise.all([
-      this.postForm('/aspiData', {}),
-      this.postForm('/snpData', {}),
-    ]);
-
-    if (!aspiPayload && !snpPayload) {
-      return null;
-    }
-
-    const indexes = [...this.marketIndexesFixture];
-    if (aspiPayload) {
-      indexes[0] = this.normalizeIndexPayload('ASPI', 'All Share Price Index', aspiPayload, this.marketIndexesFixture[0]);
-    }
-    if (snpPayload) {
-      indexes[1] = this.normalizeIndexPayload('SNP', 'S&P SL20', snpPayload, this.marketIndexesFixture[1]);
-    }
-
-    return indexes;
-  }
-
-  private normalizeIndexPayload(
-    indexCode: 'ASPI' | 'SNP',
-    label: string,
-    payload: unknown,
-    fallback: CseMarketIndex,
-  ): CseMarketIndex {
-    const record = this.pickObject(payload, ['data', 'summary', 'result']) ?? payload;
-
-    return {
-      indexCode,
-      label,
-      tradedDate: this.pickString(record, ['tradedDate', 'date']) ?? fallback.tradedDate,
-      closeValue: this.pickNumber(record, ['closeValue', 'close', 'value']) ?? fallback.closeValue,
-      changeValue: this.pickNumber(record, ['changeValue', 'change']) ?? fallback.changeValue,
-      changePercent: this.pickNumber(record, ['changePercent', 'change_pct']) ?? fallback.changePercent,
-      volume: this.pickNumber(record, ['volume']) ?? fallback.volume,
-      turnover: this.pickNumber(record, ['turnover']) ?? fallback.turnover,
-    };
-  }
-
-  private async postForm(endpoint: string, body: Record<string, string>): Promise<unknown | null> {
-    if (!this.apiBaseUrl) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(`${this.apiBaseUrl}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        },
-        body: new URLSearchParams(body),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-
-      return (await response.json()) as unknown;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.warn(`Live CSE request for ${endpoint} failed: ${message}`);
-      return null;
-    }
-  }
-
-  private getAverageClose(bars: CseHistoricalBar[]): number {
-    if (bars.length === 0) {
-      return 0;
-    }
-
-    const total = bars.reduce((sum, bar) => sum + bar.closePrice, 0);
-    return this.roundPrice(total / bars.length);
-  }
-
-  private getTrendBias(symbol: string): number {
-    const seed = symbol
-      .split('')
-      .reduce((accumulator, character) => accumulator + character.charCodeAt(0), 0);
-
-    return ((seed % 5) - 2) / 10;
-  }
-
-  private roundPrice(value: number): number {
-    return Number(value.toFixed(2));
-  }
-
-  private roundPercent(value: number): number {
-    return Number(value.toFixed(2));
-  }
-
-  private pickString(payload: unknown, keys: string[]): string | undefined {
-    const object = this.asRecord(payload);
-    if (!object) {
-      return undefined;
-    }
-
-    for (const key of keys) {
-      const value = object[key];
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickNumber(payload: unknown, keys: string[]): number | undefined {
-    const object = this.asRecord(payload);
-    if (!object) {
-      return undefined;
-    }
-
-    for (const key of keys) {
-      const value = object[key];
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-      }
-
-      if (typeof value === 'string' && value.trim()) {
-        const parsed = Number(value.replace(/,/g, ''));
-        if (Number.isFinite(parsed)) {
-          return parsed;
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickObject(payload: unknown, keys: string[]): Record<string, unknown> | undefined {
-    const object = this.asRecord(payload);
-    if (!object) {
-      return undefined;
-    }
-
-    for (const key of keys) {
-      const value = object[key];
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        return value as Record<string, unknown>;
-      }
-    }
-
-    return undefined;
-  }
-
-  private asRecord(payload: unknown): Record<string, unknown> | undefined {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return undefined;
-    }
-
-    return payload as Record<string, unknown>;
   }
 }

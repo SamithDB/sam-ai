@@ -6,6 +6,7 @@ type SubAgents = {
   cseAnalyzeAgent: Agent;
   reportAgent: Agent;
   alertWatchlistAgent: Agent;
+  researchAgent: Agent;
 };
 
 export const SUPERVISOR_AGENT_ID = 'supervisor-agent';
@@ -23,6 +24,9 @@ Routing:
 - Analysis ("how is X doing", "analyse X", trend, momentum, sector, market): delegate to cseAnalyzeAgent.
 - Full research report ("give me a report on X"): first cseAnalyzeAgent (and dataRetrieveAgent for announcements if
   useful), then pass all of their findings to reportAgent and return its markdown.
+- Predictions and research results ("predict X", "will X go up tomorrow", "why does the model think ...",
+  model accuracy/evaluation, explanation reliability, regimes, research data coverage or sync status): delegate to
+  researchAgent and return its answer with its sections intact (do not drop the reliability section or caveats).
 - Watchlist and alerts (add/remove/list, alert thresholds, check alerts): delegate to alertWatchlistAgent.
 - General questions about how the CSE works can be answered directly, briefly.
 - Off-topic requests: politely explain you only help with CSE stock research.

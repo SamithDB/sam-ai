@@ -14,7 +14,7 @@ export function createReportAgent(options: AgentTeamOptions) {
 
 You receive findings (facts and analysis) in the request. Turn them into a report:
 1. Write a one-line headline, a 2-4 sentence summary, key metrics, signals, risks and a balanced conclusion.
-2. Call report-formatter exactly once with those parts. Set isSampleData to true if any finding mentions sample/fixture data.
+2. Call report-formatter exactly once with those parts.
 3. Reply with the markdown the tool returns, unchanged.
 
 Use only the facts you were given. If something important is missing, say so in the summary instead of guessing.

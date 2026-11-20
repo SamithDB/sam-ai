@@ -24,16 +24,23 @@ export const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3333),
   API_PORT_FALLBACK: booleanFromString,
 
-  // MongoDB
-  MONGO_URI: z.string().trim().min(1).default('mongodb://127.0.0.1:27017/sam-ai'),
 
-  // CSE data source (unset = use built-in fixture data)
-  CSE_API_BASE_URL: optionalString,
+  // Public cse.lk API used for all live market data (there is no sample-data mode)
+  CSE_API_BASE_URL: z.string().trim().url().default('https://www.cse.lk/api'),
+
+  // Research results written by research/scripts/run_experiment.py (relative to the workspace root)
+  RESEARCH_RESULTS_DIR: z.string().trim().min(1).default('research/results'),
+  // Python research service (research/src/cse_xai/service.py): data sync + live predictions
+  RESEARCH_SERVICE_URL: z.string().trim().url().default('http://127.0.0.1:8001'),
 
   // Mastra / LLM
   MASTRA_ENABLED: booleanFromString,
-  MASTRA_MODEL: z.string().trim().min(1).default('openai/gpt-5-mini'),
+  // LLM provider for the agents: 'openai' (default) or 'anthropic'. Each provider has its own model and key.
+  LLM_PROVIDER: z.enum(['openai', 'anthropic']).default('openai'),
+  OPENAI_MODEL: z.string().trim().min(1).default('gpt-5-mini'),
   OPENAI_API_KEY: optionalString,
+  ANTHROPIC_MODEL: z.string().trim().min(1).default('claude-haiku-5-5'),
+  ANTHROPIC_API_KEY: optionalString,
 });
 
 export type Env = z.infer<typeof envSchema>;
